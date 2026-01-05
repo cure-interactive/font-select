@@ -57,7 +57,10 @@ DEFAULT_CONFIG = {
     "red": "#ff4444"
   },
   "sample_text_to_display": "SYNTICORE WEBSITE COMPILER",
-  "sample_text_scale": 45
+  "sample_text_scale": 45,
+
+  "recent_input_dirs_max": 10,
+  "recent_input_dirs": []
 }
 
 
@@ -81,6 +84,32 @@ def _write_json_atomic(path: str, data: dict) -> None:
   with open(tmp, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
   os.replace(tmp, path)
+
+
+def _norm_dir(p: str) -> str:
+  return os.path.normpath(os.path.abspath(p))
+
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+  seen = set()
+  out: list[str] = []
+  for x in items:
+    if x in seen:
+      continue
+    seen.add(x)
+    out.append(x)
+  return out
+
+
+def _filter_existing_dirs(items: list[str]) -> list[str]:
+  out: list[str] = []
+  for p in items:
+    try:
+      if os.path.isdir(p):
+        out.append(p)
+    except Exception:
+      pass
+  return out
 
 
 def load_or_create_config(path: str) -> dict:
@@ -161,6 +190,34 @@ class FontSelectorApp(ctk.CTk):
     # Load config.json local to script, regardless of CWD.
     self.config_data = load_or_create_config(PATH_CONFIG_JSON)
 
+    # Recent input directories (local config.json beside script)
+    self.recent_input_dirs_max = clamp_int(
+      self.config_data.get("recent_input_dirs_max", 10),
+      1,
+      50,
+      10
+    )
+
+    recent_raw = self.config_data.get("recent_input_dirs", [])
+    if not isinstance(recent_raw, list):
+      recent_raw = []
+
+    self.recent_input_dirs: list[str] = []
+    for p in recent_raw:
+      if isinstance(p, str) and p.strip():
+        self.recent_input_dirs.append(_norm_dir(p.strip()))
+
+    self.recent_input_dirs = _dedupe_keep_order(self.recent_input_dirs)
+    self.recent_input_dirs = _filter_existing_dirs(self.recent_input_dirs)
+    self.recent_input_dirs = self.recent_input_dirs[: self.recent_input_dirs_max]
+
+    # Persist cleaned list
+    self.config_data["recent_input_dirs_max"] = self.recent_input_dirs_max
+    self.config_data["recent_input_dirs"] = list(self.recent_input_dirs)
+    _write_json_atomic(PATH_CONFIG_JSON, self.config_data)
+
+    self.var_recent_dir = tk.StringVar(value=(self.recent_input_dirs[0] if self.recent_input_dirs else "(none)"))
+
     ctk.set_appearance_mode(self.config_data.get("appearance_mode", "System"))
     ctk.set_default_color_theme(self.config_data.get("color_theme", "blue"))
 
@@ -224,6 +281,17 @@ class FontSelectorApp(ctk.CTk):
     self.lbl_dir_value = ctk.CTkLabel(self.panel, text="(none selected)", justify="left", wraplength=260)
     self.lbl_dir_value.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
 
+    self.lbl_recent_title = ctk.CTkLabel(self.panel, text="Recent", font=("Helvetica", 14, "bold"))
+    self.lbl_recent_title.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 4))
+
+    self.recent_dir_menu = ctk.CTkOptionMenu(
+      self.panel,
+      variable=self.var_recent_dir,
+      values=(self.recent_input_dirs if self.recent_input_dirs else ["(none)"]),
+      command=self._on_recent_dir_selected
+    )
+    self.recent_dir_menu.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 12))
+
     self.btn_pick_dir = ctk.CTkButton(
       self.panel,
       text="Select Directory…",
@@ -231,22 +299,22 @@ class FontSelectorApp(ctk.CTk):
       hover_color=self.color_red,
       command=self.select_directory
     )
-    self.btn_pick_dir.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
+    self.btn_pick_dir.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 12))
 
     # Sample text controls
     self.lbl_sample = ctk.CTkLabel(self.panel, text="Sample Text", font=("Helvetica", 14, "bold"))
-    self.lbl_sample.grid(row=3, column=0, sticky="w", padx=12, pady=(8, 4))
+    self.lbl_sample.grid(row=5, column=0, sticky="w", padx=12, pady=(8, 4))
 
     self.var_sample_text = tk.StringVar(value=self.sample_text_to_display)
     self.entry_sample_text = ctk.CTkEntry(self.panel, textvariable=self.var_sample_text)
-    self.entry_sample_text.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 8))
+    self.entry_sample_text.grid(row=6, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     self.lbl_scale = ctk.CTkLabel(self.panel, text="Font Size (scale)", font=("Helvetica", 14, "bold"))
-    self.lbl_scale.grid(row=5, column=0, sticky="w", padx=12, pady=(8, 4))
+    self.lbl_scale.grid(row=7, column=0, sticky="w", padx=12, pady=(8, 4))
 
     self.var_scale = tk.StringVar(value=str(self.sample_text_scale))
     self.entry_scale = ctk.CTkEntry(self.panel, textvariable=self.var_scale)
-    self.entry_scale.grid(row=6, column=0, sticky="ew", padx=12, pady=(0, 8))
+    self.entry_scale.grid(row=8, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     self.btn_apply_sample = ctk.CTkButton(
       self.panel,
@@ -255,11 +323,11 @@ class FontSelectorApp(ctk.CTk):
       hover_color=self.color_red,
       command=self.apply_sample_settings
     )
-    self.btn_apply_sample.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 12))
+    self.btn_apply_sample.grid(row=9, column=0, sticky="ew", padx=12, pady=(0, 12))
 
     # State controls
     self.lbl_state = ctk.CTkLabel(self.panel, text="Run State", font=("Helvetica", 14, "bold"))
-    self.lbl_state.grid(row=8, column=0, sticky="w", padx=12, pady=(10, 4))
+    self.lbl_state.grid(row=10, column=0, sticky="w", padx=12, pady=(10, 4))
 
     self.btn_reset_state = ctk.CTkButton(
       self.panel,
@@ -268,7 +336,7 @@ class FontSelectorApp(ctk.CTk):
       hover_color=self.color_red,
       command=self.reset_state_for_current_dir
     )
-    self.btn_reset_state.grid(row=9, column=0, sticky="ew", padx=12, pady=(0, 12))
+    self.btn_reset_state.grid(row=11, column=0, sticky="ew", padx=12, pady=(0, 12))
 
     self.hint = ctk.CTkLabel(
       self.panel,
@@ -276,7 +344,7 @@ class FontSelectorApp(ctk.CTk):
       justify="left",
       wraplength=260
     )
-    self.hint.grid(row=10, column=0, sticky="w", padx=12, pady=(6, 12))
+    self.hint.grid(row=12, column=0, sticky="w", padx=12, pady=(6, 12))
 
     # Right/main area
     self.main = ctk.CTkFrame(self, corner_radius=12)
@@ -313,6 +381,7 @@ class FontSelectorApp(ctk.CTk):
     self.display_frame.grid_columnconfigure(0, weight=1)
 
     self._render_empty_state()
+    self._refresh_recent_dir_menu()
 
   def _render_empty_state(self) -> None:
     for w in self.display_frame.winfo_children():
@@ -357,6 +426,60 @@ class FontSelectorApp(ctk.CTk):
   # Directory / State
   # -----------------------------------------------------------------------------
 
+  def _save_recent_dirs_config(self) -> None:
+    self.config_data["recent_input_dirs_max"] = self.recent_input_dirs_max
+    self.config_data["recent_input_dirs"] = list(self.recent_input_dirs[: self.recent_input_dirs_max])
+    _write_json_atomic(PATH_CONFIG_JSON, self.config_data)
+
+
+  def _push_recent_dir(self, input_dir: str) -> None:
+    p = _norm_dir(input_dir)
+    if not os.path.isdir(p):
+      return
+
+    self.recent_input_dirs = [p] + [x for x in self.recent_input_dirs if x != p]
+    self.recent_input_dirs = _dedupe_keep_order(self.recent_input_dirs)
+    self.recent_input_dirs = _filter_existing_dirs(self.recent_input_dirs)
+    self.recent_input_dirs = self.recent_input_dirs[: self.recent_input_dirs_max]
+
+    self._save_recent_dirs_config()
+    self._refresh_recent_dir_menu()
+
+
+  def _refresh_recent_dir_menu(self) -> None:
+    values = list(self.recent_input_dirs)
+    if not values:
+      values = ["(none)"]
+      self.var_recent_dir.set("(none)")
+      try:
+        self.recent_dir_menu.configure(values=values, state="disabled")
+      except Exception:
+        pass
+      return
+
+    if self.var_recent_dir.get() not in values:
+      self.var_recent_dir.set(values[0])
+
+    try:
+      self.recent_dir_menu.configure(values=values, state="normal")
+    except Exception:
+      pass
+
+
+  def _on_recent_dir_selected(self, value: str) -> None:
+    v = (value or "").strip()
+    if not v or v == "(none)":
+      return
+    if not os.path.isdir(v):
+      # Remove dead entry + refresh
+      self.recent_input_dirs = [x for x in self.recent_input_dirs if x != v]
+      self._save_recent_dirs_config()
+      self._refresh_recent_dir_menu()
+      messagebox.showerror("Recent Directory Missing", f"This directory no longer exists:\n{v}")
+      return
+
+    self.load_input_directory(v)
+
   def select_directory(self) -> None:
     chosen = filedialog.askdirectory(title="Select Font Input Directory")
     if not chosen:
@@ -365,6 +488,8 @@ class FontSelectorApp(ctk.CTk):
 
   def load_input_directory(self, input_dir: str) -> None:
     self.input_dir = os.path.abspath(input_dir)
+    self._push_recent_dir(self.input_dir)
+    self.var_recent_dir.set(self.input_dir)
     self.path_state_json = os.path.join(self.input_dir, STATE_FILENAME)
     self.path_selected_txt = os.path.join(self.input_dir, SELECTED_FILENAME)
 
