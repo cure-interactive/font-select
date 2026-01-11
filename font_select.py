@@ -216,7 +216,7 @@ class FontSelectorApp(ctk.CTk):
     self.config_data["recent_input_dirs"] = list(self.recent_input_dirs)
     _write_json_atomic(PATH_CONFIG_JSON, self.config_data)
 
-    self.var_recent_dir = tk.StringVar(value=(self.recent_input_dirs[0] if self.recent_input_dirs else "(none)"))
+    self.var_input_dir = tk.StringVar(value=(self.recent_input_dirs[0] if self.recent_input_dirs else ""))
 
     ctk.set_appearance_mode(self.config_data.get("appearance_mode", "System"))
     ctk.set_default_color_theme(self.config_data.get("color_theme", "blue"))
@@ -281,16 +281,14 @@ class FontSelectorApp(ctk.CTk):
     self.lbl_dir_value = ctk.CTkLabel(self.panel, text="(none selected)", justify="left", wraplength=260)
     self.lbl_dir_value.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
 
-    self.lbl_recent_title = ctk.CTkLabel(self.panel, text="Recent", font=("Helvetica", 14, "bold"))
-    self.lbl_recent_title.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 4))
-
-    self.recent_dir_menu = ctk.CTkOptionMenu(
+    self.input_dir_menu = ctk.CTkComboBox(
       self.panel,
-      variable=self.var_recent_dir,
+      variable=self.var_input_dir,
       values=(self.recent_input_dirs if self.recent_input_dirs else ["(none)"]),
-      command=self._on_recent_dir_selected
+      command=self._on_input_dir_selected,
+      state="normal",
     )
-    self.recent_dir_menu.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 12))
+    self.input_dir_menu.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
 
     self.btn_pick_dir = ctk.CTkButton(
       self.panel,
@@ -299,7 +297,7 @@ class FontSelectorApp(ctk.CTk):
       hover_color=self.color_red,
       command=self.select_directory
     )
-    self.btn_pick_dir.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 12))
+    self.btn_pick_dir.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 12))
 
     # Sample text controls
     self.lbl_sample = ctk.CTkLabel(self.panel, text="Sample Text", font=("Helvetica", 14, "bold"))
@@ -381,7 +379,7 @@ class FontSelectorApp(ctk.CTk):
     self.display_frame.grid_columnconfigure(0, weight=1)
 
     self._render_empty_state()
-    self._refresh_recent_dir_menu()
+    self._refresh_input_dir_menu()
 
   def _render_empty_state(self) -> None:
     for w in self.display_frame.winfo_children():
@@ -443,30 +441,24 @@ class FontSelectorApp(ctk.CTk):
     self.recent_input_dirs = self.recent_input_dirs[: self.recent_input_dirs_max]
 
     self._save_recent_dirs_config()
-    self._refresh_recent_dir_menu()
+    self._refresh_input_dir_menu()
 
 
-  def _refresh_recent_dir_menu(self) -> None:
+  def _refresh_input_dir_menu(self) -> None:
     values = list(self.recent_input_dirs)
     if not values:
       values = ["(none)"]
-      self.var_recent_dir.set("(none)")
-      try:
-        self.recent_dir_menu.configure(values=values, state="disabled")
-      except Exception:
-        pass
-      return
 
-    if self.var_recent_dir.get() not in values:
-      self.var_recent_dir.set(values[0])
+    # Keep it typeable even if list is empty
+    self.input_dir_menu.configure(values=values, state="normal")
 
-    try:
-      self.recent_dir_menu.configure(values=values, state="normal")
-    except Exception:
-      pass
+    # If the field is empty, prefer the most recent real path
+    cur = (self.var_input_dir.get() or "").strip()
+    if (not cur) and values and values[0] != "(none)":
+      self.var_input_dir.set(values[0])
 
 
-  def _on_recent_dir_selected(self, value: str) -> None:
+  def _on_input_dir_selected(self, value: str) -> None:
     v = (value or "").strip()
     if not v or v == "(none)":
       return
@@ -474,8 +466,8 @@ class FontSelectorApp(ctk.CTk):
       # Remove dead entry + refresh
       self.recent_input_dirs = [x for x in self.recent_input_dirs if x != v]
       self._save_recent_dirs_config()
-      self._refresh_recent_dir_menu()
-      messagebox.showerror("Recent Directory Missing", f"This directory no longer exists:\n{v}")
+      self._refresh_input_dir_menu()
+      messagebox.showerror("Directory Missing", f"This directory no longer exists:\n{v}")
       return
 
     self.load_input_directory(v)
@@ -489,7 +481,8 @@ class FontSelectorApp(ctk.CTk):
   def load_input_directory(self, input_dir: str) -> None:
     self.input_dir = os.path.abspath(input_dir)
     self._push_recent_dir(self.input_dir)
-    self.var_recent_dir.set(self.input_dir)
+    self.var_input_dir.set(self.input_dir)
+
     self.path_state_json = os.path.join(self.input_dir, STATE_FILENAME)
     self.path_selected_txt = os.path.join(self.input_dir, SELECTED_FILENAME)
 
