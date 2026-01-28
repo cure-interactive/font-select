@@ -45,7 +45,6 @@ SELECTED_FILENAME = "font_selection_selected.txt"
 
 DEFAULT_CONFIG = {
   "window": {
-    "title": "Font Selector",
     "width": 980,
     "height": 820
   },
@@ -56,7 +55,7 @@ DEFAULT_CONFIG = {
     "blue_dark": "#334455",
     "red": "#ff4444"
   },
-  "sample_text_to_display": "SYNTICORE WEBSITE COMPILER",
+  "sample_text_to_display": "Sample Text",
   "sample_text_scale": 45,
 
   "recent_input_dirs_max": 10,
@@ -136,6 +135,29 @@ def clamp_int(value, lo: int, hi: int, fallback: int) -> int:
   except Exception:
     return fallback
 
+# =============================================================================
+# Windows Taskbar Identity (AppUserModelID)
+# =============================================================================
+
+def set_windows_app_user_model_id(app_id: str) -> None:
+  """
+  Set an explicit Windows AppUserModelID for this process (best-effort).
+
+  Notes:
+  - No-op on non-Windows.
+  - Call BEFORE creating the Tk/CTk window (i.e., early in main()).
+  """
+  try:
+    if os.name != "nt":
+      return
+
+    import ctypes  # stdlib, Windows-only usage
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(str(app_id))
+  except Exception:
+    return
+
+APP_USER_MODEL_ID = "CureInteractive.FontSelect"
 
 # =============================================================================
 # Window Icon (title bar / taskbar best-effort)
@@ -174,6 +196,8 @@ def set_window_icon(root, ico_path: str, png_path: str) -> None:
 # =============================================================================
 # App
 # =============================================================================
+
+APP_TITLE = "Font Select - Cure Interactive"
 
 class FontSelectorApp(ctk.CTk):
   def __init__(self):
@@ -228,9 +252,8 @@ class FontSelectorApp(ctk.CTk):
 
     w = self.config_data.get("window", {}).get("width", 980)
     h = self.config_data.get("window", {}).get("height", 820)
-    title = self.config_data.get("window", {}).get("title", "Font Selector")
 
-    self.title(title)
+    self.title(APP_TITLE)
     self.geometry(f"{w}x{h}")
 
     # Runtime state
@@ -826,6 +849,9 @@ class FontSelectorApp(ctk.CTk):
 
 
 def main() -> None:
+  # Must happen early for best taskbar behavior on Windows.
+  set_windows_app_user_model_id(APP_USER_MODEL_ID)
+
   app = FontSelectorApp()
   app.mainloop()
 
